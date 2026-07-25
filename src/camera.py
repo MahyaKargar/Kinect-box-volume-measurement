@@ -2,7 +2,7 @@ import sys
 import threading
 
 import clr
-import System
+import System # type: ignore
 import numpy as np
 
 sdk_path = r"C:\Program Files\Microsoft SDKs\Kinect\v1.8\Assemblies"
@@ -12,7 +12,7 @@ if sdk_path not in sys.path:
 
 clr.AddReference("Microsoft.Kinect")
 
-from Microsoft.Kinect import KinectSensor, DepthImageFormat
+from Microsoft.Kinect import KinectSensor, DepthImageFormat # type: ignore
 
 
 class KinectCamera:
@@ -95,10 +95,21 @@ class KinectCamera:
             # استخراج عمق (13 بیت بالا)
             depth = raw >> 3
 
+            # if not hasattr(self, "_debug"):
+
+            #     self._debug = True
+
+            #     print(raw[:20])
+
+            # print("8191 Pixels :", np.count_nonzero(depth == 8191))
+
             depth = depth.reshape(
                 frame.Height,
                 frame.Width
             )
+
+            depth = depth.astype(np.uint16)
+            depth[depth == 8191] = 0
 
             with self._lock:
 

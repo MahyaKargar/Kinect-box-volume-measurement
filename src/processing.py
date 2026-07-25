@@ -76,28 +76,23 @@ class DepthProcessor:
     def subtract(self):
 
         if self.reference is None:
-
             raise RuntimeError(
                 "Reference frame is not available."
             )
 
         if self.current is None:
-
             raise RuntimeError(
                 "Current frame is not available."
             )
 
         ref = self.reference.astype(np.int32)
-
         cur = self.current.astype(np.int32)
 
-        self.difference = ref - cur
+        diff = ref - cur
 
-        self.difference[self.difference < 0] = 0
+        diff = np.clip(diff, 0, None)
 
-        self.difference = self.difference.astype(
-            np.uint16
-        )
+        self.difference = diff.astype(np.uint16)
 
         return self.difference
 
@@ -109,10 +104,10 @@ class DepthProcessor:
 
         depth = depth.copy()
 
-        depth[depth == 0] = 0
+        depth[(depth < 500)] = 0
+        depth[(depth > 4000)] = 0
 
         return depth
-
     # ==================================================
     # Filters
     # ==================================================
@@ -180,9 +175,31 @@ class DepthProcessor:
 
     def process(self):
 
-        diff = self.subtract()
+        if self.reference is None:
+            raise RuntimeError(
+                "Reference frame is not available."
+            )
 
-        diff = self.remove_noise(diff)
+        if self.current is None:
+            raise RuntimeError(
+                "Current frame is not available."
+            )
+
+        reference = self.remove_noise(self.reference)
+
+        current = self.remove_noise(self.current)
+
+        ref = reference.astype(np.int32)
+
+        cur = current.astype(np.int32)
+
+        diff = ref - cur
+
+        diff = np.clip(diff, 0, None)
+
+        diff = diff.astype(np.uint16)
+
+        self.difference = diff
 
         mask = self.threshold(diff)
 

@@ -1,21 +1,47 @@
 import cv2
 import traceback
+import numpy as np
+import time
 
 from camera import KinectCamera
 from processing import DepthProcessor
+from measurement import Measurement
 
 
-def wait_for_frame(camera):
+def wait_for_frame(camera, num_frames=15):
 
-    print("Waiting for depth frame...")
+    print(f"Capturing {num_frames} depth frames...")
 
-    while True:
+    frames = []
+
+    while len(frames) < num_frames:
 
         frame = camera.get_depth_frame()
 
-        if frame is not None:
-            return frame
+        if frame is None:
+            continue
 
+        frames.append(frame)
+
+        time.sleep(0.03)
+
+        print(
+            f"\rFrame {len(frames)}/{num_frames}",
+            end=""
+        )
+
+    print("\nCreating median frame...")
+
+    frames = np.stack(frames, axis=0)
+
+    median_frame = np.median(
+        frames,
+        axis=0
+    )
+
+    print("Stable frame captured.\n")
+
+    return median_frame.astype(np.uint16)
 
 def show_depth(camera, processor):
 
@@ -45,6 +71,8 @@ def capture_reference(camera, processor):
 
     depth = wait_for_frame(camera)
 
+    print("8191 Reference :", np.count_nonzero(depth == 8191))
+
     processor.set_reference(depth)
 
     print("Reference frame captured successfully.")
@@ -53,6 +81,8 @@ def capture_reference(camera, processor):
 def capture_current(camera, processor):
 
     depth = wait_for_frame(camera)
+
+    print("8191 Reference :", np.count_nonzero(depth == 8191))
 
     processor.set_current(depth)
 
@@ -85,7 +115,7 @@ def load_reference(processor):
         print(ex)
 
 
-def calculate_difference(processor):
+def calculate_difference(processor, measurement):
 
     if processor.reference is None:
 
@@ -98,12 +128,49 @@ def calculate_difference(processor):
         return
 
     diff = processor.subtract()
+    valid = diff[diff > 0]
+
+    if len(valid):
+        print("Diff mean (valid):", np.mean(valid))
+        print("Diff median:", np.median(valid))
+        print("Diff std:", np.std(valid))
+
+    print("Reference mean:", np.mean(processor.reference))
+    print("Current mean  :", np.mean(processor.current))
+
+    print("Reference min :", np.min(processor.reference))
+    print("Current min   :", np.min(processor.current))
+
+    print("Reference max :", np.max(processor.reference))
+    print("Current max   :", np.max(processor.current))
 
     diff = processor.remove_noise(diff)
 
     mask = processor.threshold(diff)
 
+    print("Pixels > threshold:", np.count_nonzero(mask))
+
     mask = processor.morphology(mask)
+
+    print("Mask Pixels:", np.count_nonzero(mask))
+
+
+    reference_cloud, current_cloud, object_cloud = measurement.process(
+    processor.reference,
+    processor.current,
+    mask
+    )
+
+    print("--------------------------------")
+    print("Reference Cloud :", reference_cloud.shape)
+    print("Current Cloud   :", current_cloud.shape)
+    print("Object Cloud    :", object_cloud.shape)
+    print("--------------------------------")
+
+    measurement.visualize_point_cloud(
+        object_cloud,
+        "Object Point Cloud"
+    )
 
     contours = processor.find_contours(mask)
 
@@ -230,6 +297,8 @@ def main():
 
         processor = DepthProcessor()
 
+        measurement = Measurement()
+
         camera.start()
 
         print("Kinect started successfully.")
@@ -262,7 +331,7 @@ def main():
 
             elif choice == "6":
 
-                calculate_difference(processor)
+                calculate_difference(processor, measurement)
 
             elif choice == "7":
 
