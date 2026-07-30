@@ -69,10 +69,9 @@ def show_depth(camera, processor):
 
 def capture_reference(camera, processor):
 
-    depth = wait_for_frame(camera)
+    depth = wait_for_frame(camera, num_frames=30)
 
     print("8191 Reference :", np.count_nonzero(depth == 8191))
-
     processor.set_reference(depth)
 
     print("Reference frame captured successfully.")
@@ -127,13 +126,30 @@ def calculate_difference(processor, measurement):
         print("Current frame not available.")
         return
 
-    diff = processor.subtract()
+    diff = processor.subtract(processor.reference, processor.current)
+
+    diff_show = cv2.convertScaleAbs(
+        diff,
+        alpha=255.0 / max(diff.max(), 1)
+    )
+
+    cv2.imshow("Raw Difference", diff_show)
+    cv2.waitKey(0)
+    # ایcv2.destroyWindow("Raw Difference")
+
     valid = diff[diff > 0]
 
     if len(valid):
         print("Diff mean (valid):", np.mean(valid))
+        print("Max :", np.max(valid))
         print("Diff median:", np.median(valid))
+        print("Mean:", np.mean(valid))
         print("Diff std:", np.std(valid))
+        print("P10 :", np.percentile(valid,10))
+        print("P25 :", np.percentile(valid,25))
+        print("P50 :", np.percentile(valid,50))
+        print("P75 :", np.percentile(valid,75))
+        print("P90 :", np.percentile(valid,90))
 
     print("Reference mean:", np.mean(processor.reference))
     print("Current mean  :", np.mean(processor.current))

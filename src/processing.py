@@ -7,42 +7,36 @@ import numpy as np
 class DepthProcessor:
 
     def __init__(self):
-
-        # -----------------------------
-        # Frames
-        # -----------------------------
-
         self.reference = None
         self.current = None
         self.difference = None
 
-        # -----------------------------
-        # Parameters
-        # -----------------------------
-
-        self.min_height = 50
+        self.min_height = 20
 
         self.kernel = np.ones(
             (5, 5),
             np.uint8
         )
 
-    # ==================================================
-    # Reference Frame
-    # ==================================================
-
     def set_reference(self, depth):
-
         self.reference = depth.copy()
+        valid_pixels = self.reference[self.reference > 0]
+        if len(valid_pixels) > 0:
+            blur = cv2.medianBlur(self.reference, 5)
+            noise_map = cv2.absdiff(self.reference, blur)
+            valid_noise = noise_map[self.reference > 0]
+            std_noise = np.std(valid_noise)
+            self.min_height = max(20.0, 3.0 * std_noise)
+            print(f"[Auto-Threshold] Dynamic noise threshold set to: {self.min_height:.2f} mm")
+
+    
 
     def has_reference(self):
-
         return self.reference is not None
 
     def save_reference(self, filename="reference.npy"):
 
         if self.reference is None:
-
             raise RuntimeError(
                 "Reference frame is not available."
             )
@@ -52,72 +46,57 @@ class DepthProcessor:
     def load_reference(self, filename="reference.npy"):
 
         if not os.path.exists(filename):
-
             raise FileNotFoundError(filename)
 
         self.reference = np.load(filename)
+        self.set_reference(self.reference)
 
-    # ==================================================
-    # Current Frame
-    # ==================================================
-
+  
     def set_current(self, depth):
-
         self.current = depth.copy()
 
     def has_current(self):
-
         return self.current is not None
 
-    # ==================================================
-    # Difference
-    # ==================================================
+    def subtract(self, reference, current):
 
-    def subtract(self):
-
-        if self.reference is None:
+        if reference is None:
             raise RuntimeError(
                 "Reference frame is not available."
             )
 
-        if self.current is None:
+        if current is None:
             raise RuntimeError(
                 "Current frame is not available."
             )
 
-        ref = self.reference.astype(np.int32)
-        cur = self.current.astype(np.int32)
+        ref = reference.astype(np.int32)
+        cur = current.astype(np.int32)
+
+        valid = self.create_valid_mask(reference, current)
 
         diff = ref - cur
 
         diff = np.clip(diff, 0, None)
+        diff[~valid] = 0
 
         self.difference = diff.astype(np.uint16)
 
         return self.difference
 
-    # ==================================================
-    # Invalid Pixels
-    # ==================================================
+   
 
-    def remove_invalid_pixels(self, depth):
+    # def remove_invalid_pixels(self, depth):
 
-        depth = depth.copy()
-
-        depth[(depth < 500)] = 0
-        depth[(depth > 4000)] = 0
-
-        return depth
-    # ==================================================
-    # Filters
-    # ==================================================
-
+    #     depth = depth.copy()
+    #     invalid = (depth == 0)
+    #     depth[invalid] = 0
+    #     return depth
+    
     def median_filter(self, depth):
-
         return cv2.medianBlur(depth, 5)
 
     def gaussian_filter(self, depth):
-
         return cv2.GaussianBlur(
             depth,
             (5, 5),
@@ -126,33 +105,43 @@ class DepthProcessor:
 
     def remove_noise(self, depth):
 
-        depth = self.remove_invalid_pixels(depth)
+        depth_clean = depth.copy()
+        zero_mask = (depth_clean == 0)
+        depth_clean = self.median_filter(depth_clean)
+        depth_clean[zero_mask] = 0
 
-        depth = self.median_filter(depth)
+        return depth_clean
 
-        depth = self.gaussian_filter(depth)
-
-        return depth
-
-    # ==================================================
-    # Threshold
-    # ==================================================
 
     def threshold(self, diff):
+
+        # valid = diff[diff > 0]
+
+        threshold = self.min_height
 
         mask = np.zeros(
             diff.shape,
             dtype=np.uint8
         )
 
-        mask[diff > self.min_height] = 255
+        # if len(valid) == 0:
+        #     return mask
+
+        # mean = np.mean(valid)
+        # std = np.std(valid)
+
+        # threshold = max(
+        #     self.min_height,
+        #     mean + 0.5 * std
+        # )
+
+        print(f"Adaptive Threshold : {threshold:.1f}")
+
+        mask[diff >= threshold] = 255
 
         return mask
 
-    # ==================================================
-    # Morphology
-    # ==================================================
-
+   
     def morphology(self, mask):
 
         mask = cv2.morphologyEx(
@@ -169,9 +158,7 @@ class DepthProcessor:
 
         return mask
 
-    # ==================================================
-    # Complete Pipeline
-    # ==================================================
+   
 
     def process(self):
 
@@ -189,15 +176,7 @@ class DepthProcessor:
 
         current = self.remove_noise(self.current)
 
-        ref = reference.astype(np.int32)
-
-        cur = current.astype(np.int32)
-
-        diff = ref - cur
-
-        diff = np.clip(diff, 0, None)
-
-        diff = diff.astype(np.uint16)
+        diff = self.subtract(reference, current)
 
         self.difference = diff
 
@@ -205,11 +184,12 @@ class DepthProcessor:
 
         mask = self.morphology(mask)
 
-        return diff, mask
-    # ==================================================
-    # Contours
-    # ==================================================
+        mask = self.keep_largest_component(mask)
 
+        mask = self.fill_largest_contour(mask)
+
+        return diff, mask
+    
     def find_contours(self, mask):
 
         contours, _ = cv2.findContours(
@@ -237,10 +217,7 @@ class DepthProcessor:
 
         return cv2.contourArea(contour)
 
-    # ==================================================
-    # Bounding Box
-    # ==================================================
-
+   
     def bounding_box(self, contour):
 
         if contour is None:
@@ -263,10 +240,7 @@ class DepthProcessor:
 
         return (cx, cy)
 
-    # ==================================================
-    # Draw
-    # ==================================================
-
+   
     def draw_contours(self, image, contours):
 
         output = image.copy()
@@ -321,9 +295,6 @@ class DepthProcessor:
 
         return output
 
-    # ==================================================
-    # Visualization
-    # ==================================================
 
     def visualize_depth(self, depth):
 
@@ -359,10 +330,7 @@ class DepthProcessor:
             cv2.COLORMAP_HOT
         )
 
-    # ==================================================
-    # Object Extraction
-    # ==================================================
-
+   
     def get_object_mask(self):
 
         diff, mask = self.process()
@@ -381,10 +349,7 @@ class DepthProcessor:
 
         return pixels
 
-    # ==================================================
-    # Statistics
-    # ==================================================
-
+   
     def max_height(self):
 
         pixels = self.get_object_pixels()
@@ -411,3 +376,61 @@ class DepthProcessor:
             return 0
 
         return cv2.contourArea(contour)
+
+    def create_valid_mask(self, reference, current):
+
+        valid = (
+            (reference > 0) &
+            (current > 0)
+        )
+
+        return valid
+
+    def keep_largest_component(self, mask):
+
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+            mask,
+            connectivity=8
+        )
+
+        if num_labels <= 1:
+            return mask
+
+        largest = 1 + np.argmax(
+            stats[1:, cv2.CC_STAT_AREA]
+        )
+
+        output = np.zeros_like(mask)
+
+        output[labels == largest] = 255
+
+        return output
+
+
+    def fill_largest_contour(self, mask):
+
+        contours, _ = cv2.findContours(
+            mask,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if len(contours) == 0:
+            return mask
+
+        largest = max(
+            contours,
+            key=cv2.contourArea
+        )
+
+        output = np.zeros_like(mask)
+
+        cv2.drawContours(
+            output,
+            [largest],
+            -1,
+            255,
+            thickness=cv2.FILLED
+        )
+
+        return output
