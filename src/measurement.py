@@ -1,7 +1,7 @@
 import numpy as np
 import open3d as o3d
 
-class Measurement:
+class PointCloudBuilder:
 
     def __init__(self):
         self.fx = 285.63

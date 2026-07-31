@@ -5,7 +5,8 @@ import time
 
 from camera import KinectCamera
 from processing import DepthProcessor
-from measurement import Measurement
+from measurement import PointCloudBuilder
+from volume_calculator import VolumeCalculator
 
 
 def wait_for_frame(camera, num_frames=15):
@@ -114,7 +115,7 @@ def load_reference(processor):
         print(ex)
 
 
-def calculate_difference(processor, measurement):
+def calculate_difference(processor, measurement, volume):
 
     if processor.reference is None:
 
@@ -126,7 +127,7 @@ def calculate_difference(processor, measurement):
         print("Current frame not available.")
         return
 
-    diff = processor.subtract(processor.reference, processor.current)
+    diff, mask = processor.process()
 
     diff_show = cv2.convertScaleAbs(
         diff,
@@ -160,16 +161,7 @@ def calculate_difference(processor, measurement):
     print("Reference max :", np.max(processor.reference))
     print("Current max   :", np.max(processor.current))
 
-    diff = processor.remove_noise(diff)
-
-    mask = processor.threshold(diff)
-
-    print("Pixels > threshold:", np.count_nonzero(mask))
-
-    mask = processor.morphology(mask)
-
     print("Mask Pixels:", np.count_nonzero(mask))
-
 
     reference_cloud, current_cloud, object_cloud = measurement.process(
     processor.reference,
@@ -204,6 +196,12 @@ def calculate_difference(processor, measurement):
     print(f"Contours detected : {len(contours)}")
     print("Press ESC to return.")
     print("--------------------------------")
+
+    volume_cm3 = volume.calculate_volume_from_diff(diff, processor.reference, mask)
+    width, length, height = volume.calculate_bounding_box(object_cloud)
+
+    print(f"Volume: {volume_cm3:.2f} cm³")
+    print(f"Dimensions: {width:.1f} x {length:.1f} x {height:.1f} cm")
 
     while True:
 
@@ -313,7 +311,9 @@ def main():
 
         processor = DepthProcessor()
 
-        measurement = Measurement()
+        measurement = PointCloudBuilder()
+
+        volume = VolumeCalculator()
 
         camera.start()
 
@@ -347,7 +347,7 @@ def main():
 
             elif choice == "6":
 
-                calculate_difference(processor, measurement)
+                calculate_difference(processor, measurement, volume)
 
             elif choice == "7":
 

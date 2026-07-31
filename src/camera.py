@@ -129,7 +129,6 @@ class KinectCamera:
             return self._depth.copy()
 
     def is_running(self):
-
         return self._started
     
     def get_resolution(self):
