@@ -2,7 +2,7 @@ import numpy as np
 
 class VolumeCalculator:
 
-    def __init__(self, fx=585.0, fy=585.0):
+    def __init__(self, fx=285.63, fy=285.63):
         self.fx = fx
         self.fy = fy
 
@@ -21,16 +21,22 @@ class VolumeCalculator:
         return total_volume_cm3
 
 
-    def calculate_bounding_box(self, object_cloud):
+    def calculate_bounding_box(self, object_cloud, diff = None, mask = None):
         if object_cloud.shape[0] == 0:
             return 0.0, 0.0, 0.0
 
-        x_min, y_min, z_min = np.min(object_cloud, axis=0)
-        x_max, y_max, z_max = np.max(object_cloud, axis=0)
+        x_min, y_min = np.percentile(object_cloud[:, :2], 2, axis=0)
+        x_max, y_max = np.percentile(object_cloud[:, :2], 98, axis=0)
+
+        z_max = np.percentile(object_cloud[:, 2], 95)
 
         width_cm = (x_max - x_min) / 10.0
         length_cm = (y_max - y_min) / 10.0 
-        height_cm = z_max / 10.0
+        if diff is not None and mask is not None:
+            heights = diff[(mask > 0) & (diff > 0)]
+            height_cm = np.percentile(heights, 95) / 10.0 if len(heights) else 0.0
+        else:
+            height_cm = 0.0
 
         return width_cm, length_cm, height_cm
 

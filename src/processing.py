@@ -6,17 +6,45 @@ import numpy as np
 
 class DepthProcessor:
 
-    def __init__(self):
+    def __init__(self, fx=285.63, fy=285.63, baseline_mm=75.0, delta_disparity=0.125):
         self.reference = None
         self.current = None
         self.difference = None
 
         self.min_height = 20
 
+        self.fx = fx
+        self.fy = fy
+        self.baseline_mm = baseline_mm
+        self.delta_disparity = delta_disparity
+
+        self.threshold_safety_factor = 2.5
+
+        self.edge_gradient_threshold = 50.0
+        self.top_surface_tolerance_mm = 20.0
+
         self.kernel = np.ones(
             (5, 5),
             np.uint8
         )
+
+    def expected_resolution(self, z):
+       
+            z = z.astype(np.float32)
+            res = (z ** 2) / (self.fx * self.baseline_mm) * self.delta_disparity
+            res[z <= 0] = 0.0
+            return res
+
+    def _detect_scene_edges(self, depth):
+          
+            depth_f = depth.astype(np.float32)
+    
+            grad_x = cv2.Sobel(depth_f, cv2.CV_32F, 1, 0, ksize=3)
+            grad_y = cv2.Sobel(depth_f, cv2.CV_32F, 0, 1, ksize=3)
+            gradient_mag = np.sqrt(grad_x ** 2 + grad_y ** 2)
+    
+            return gradient_mag > self.edge_gradient_threshold
+    
 
     def set_reference(self, depth):
         self.reference = depth.copy()
@@ -24,11 +52,27 @@ class DepthProcessor:
         if len(valid_pixels) > 0:
             blur = cv2.medianBlur(self.reference, 5)
             noise_map = cv2.absdiff(self.reference, blur)
-            valid_noise = noise_map[self.reference > 0]
+
+            is_edge = self._detect_scene_edges(self.reference)
+            flat_region = (self.reference > 0) & (~is_edge)
+
+            
+            if np.count_nonzero(flat_region) > 0:
+                valid_noise = noise_map[flat_region]
+            else:
+                # اگر کل صحنه لبه تشخیص داده شد (بعید ولی احتیاطاً)،
+                # به تخمین بدون فیلتر برگرد تا از تقسیم بر صفر جلوگیری شود
+                valid_noise = noise_map[self.reference > 0]
+
             std_noise = np.std(valid_noise)
             self.min_height = max(20.0, 3.0 * std_noise)
-            print(f"[Auto-Threshold] Dynamic noise threshold set to: {self.min_height:.2f} mm")
 
+            edge_ratio = 1.0 - (np.count_nonzero(flat_region) / len(valid_pixels))
+
+            print(f"[Auto-Threshold] Base noise std (edge-filtered): {std_noise:.2f} mm")
+            print(f"[Auto-Threshold] Scene edge pixels excluded: {edge_ratio * 100:.1f}%")
+            print(f"[Auto-Threshold] Global min_height floor set to: {self.min_height:.2f} mm")
+           
     
 
     def has_reference(self):
@@ -117,7 +161,14 @@ class DepthProcessor:
 
         # valid = diff[diff > 0]
 
-        threshold = self.min_height
+        # threshold = self.min_height
+
+        res_map = self.expected_resolution(self.reference)
+
+        dynamic_threshold = np.maximum(
+            self.min_height,
+            self.threshold_safety_factor * res_map
+        )
 
         mask = np.zeros(
             diff.shape,
@@ -135,9 +186,20 @@ class DepthProcessor:
         #     mean + 0.5 * std
         # )
 
-        print(f"Adaptive Threshold : {threshold:.1f}")
+        mask[diff >= dynamic_threshold] = 255
 
-        mask[diff >= threshold] = 255
+        valid_thr = dynamic_threshold[self.reference > 0]
+        if len(valid_thr) > 0:
+            print(
+                f"[Adaptive Threshold] range: "
+                f"{valid_thr.min():.1f} - {valid_thr.max():.1f} mm "
+                f"(mean {valid_thr.mean():.1f} mm)"
+            )
+
+
+        # print(f"Adaptive Threshold : {threshold:.1f}")
+
+        # mask[diff >= threshold] = 255
 
         return mask
 
@@ -158,7 +220,21 @@ class DepthProcessor:
 
         return mask
 
+    def filter_top_surface(self, diff, mask):
    
+           object_diff = diff[mask > 0]
+   
+           if len(object_diff) == 0:
+               return mask
+   
+           top_height = np.percentile(object_diff, 95)
+   
+           refined = np.zeros_like(mask)
+           keep = (mask > 0) & (diff >= (top_height - self.top_surface_tolerance_mm))
+   
+           refined[keep] = 255
+   
+           return refined
 
     def process(self):
 
@@ -187,6 +263,8 @@ class DepthProcessor:
         mask = self.keep_largest_component(mask)
 
         mask = self.fill_largest_contour(mask)
+
+        mask = self.filter_top_surface(diff, mask)
 
         return diff, mask
     

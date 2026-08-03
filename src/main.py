@@ -80,7 +80,7 @@ def capture_reference(camera, processor):
 
 def capture_current(camera, processor):
 
-    depth = wait_for_frame(camera)
+    depth = wait_for_frame(camera, num_frames=30)
 
     print("8191 Reference :", np.count_nonzero(depth == 8191))
 
@@ -198,7 +198,7 @@ def calculate_difference(processor, measurement, volume):
     print("--------------------------------")
 
     volume_cm3 = volume.calculate_volume_from_diff(diff, processor.reference, mask)
-    width, length, height = volume.calculate_bounding_box(object_cloud)
+    width, length, height = volume.calculate_bounding_box(object_cloud, diff, mask)
 
     print(f"Volume: {volume_cm3:.2f} cm³")
     print(f"Dimensions: {width:.1f} x {length:.1f} x {height:.1f} cm")
