@@ -21,7 +21,7 @@ class DepthProcessor:
         self.threshold_safety_factor = 2.5
 
         self.edge_gradient_threshold = 50.0
-        self.top_surface_tolerance_mm = 20.0
+        self.top_surface_tolerance_mm = 50.0
 
         self.kernel = np.ones(
             (5, 5),
@@ -235,6 +235,61 @@ class DepthProcessor:
            refined[keep] = 255
    
            return refined
+    
+    def oriented_dimensions(self, mask, reference_depth):
+
+        contours = self.find_contours(mask)
+
+        if len(contours) == 0:
+            return 0.0, 0.0, 0.0
+
+        largest = self.largest_contour(contours)
+
+        (cx, cy), (w_px, h_px), angle = cv2.minAreaRect(largest)
+
+        ys, xs = np.where(mask > 0)
+        z_values = reference_depth[ys, xs].astype(np.float32)
+        z_values = z_values[z_values > 0]
+
+        if len(z_values) == 0:
+            return 0.0, 0.0, angle
+
+        z_mean = float(np.mean(z_values))
+
+        # تبدیل ابعاد پیکسلی به میلی‌متر با مدل پین‌هول در فاصله‌ی متوسط جسم
+        width_mm = w_px * z_mean / self.fx
+        length_mm = h_px * z_mean / self.fy
+
+        width_cm = width_mm / 10.0
+        length_cm = length_mm / 10.0
+
+        # همیشه بعد بزرگ‌تر را "طول" و کوچک‌تر را "عرض" چاپ کن تا
+        # نتیجه مستقل از جهت اتفاقی چرخش قابل‌مقایسه بماند
+        dim_a, dim_b = sorted([width_cm, length_cm], reverse=True)
+
+        print(f"[Oriented BBox] pixel size: {w_px:.1f} x {h_px:.1f} px, "
+              f"angle: {angle:.1f} deg, mean depth: {z_mean:.0f} mm")
+
+        return dim_a, dim_b, angle
+
+    def draw_oriented_box(self, image, mask):
+        """برای بررسی بصری: مستطیل چرخیده را روی تصویر رسم می‌کند."""
+
+        contours = self.find_contours(mask)
+
+        if len(contours) == 0:
+            return image
+
+        largest = self.largest_contour(contours)
+        rect = cv2.minAreaRect(largest)
+        box = cv2.boxPoints(rect)
+        box = np.intp(box)
+
+        output = image.copy()
+        cv2.drawContours(output, [box], 0, (0, 255, 0), 2)
+
+        return output
+
 
     def process(self):
 

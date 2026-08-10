@@ -40,4 +40,46 @@ class VolumeCalculator:
 
         return width_cm, length_cm, height_cm
 
-   
+    def calculate_volume_prism(self, width_cm, length_cm, height_cm):
+        return width_cm * length_cm * height_cm
+
+    def calculate_cross_section_area(self, mask, reference_depth):
+        ys, xs = np.where(mask > 0)
+
+        if len(ys) == 0:
+            return 0.0
+
+        z_values = reference_depth[ys, xs].astype(np.float32)
+        z_values = z_values[z_values > 0]
+
+        if len(z_values) == 0:
+            return 0.0
+
+        pixel_area_mm2 = (z_values / self.fx) * (z_values / self.fy)
+        total_area_mm2 = np.sum(pixel_area_mm2)
+
+        return float(total_area_mm2) / 100.0  # mm² -> cm²
+
+    def calculate_trimmed_mean_height(self, diff, mask, lower_pct=10, upper_pct=90):
+
+        heights = diff[(mask > 0) & (diff > 0)].astype(np.float32)
+
+        if len(heights) == 0:
+            return 0.0
+
+        low = np.percentile(heights, lower_pct)
+        high = np.percentile(heights, upper_pct)
+
+        trimmed = heights[(heights >= low) & (heights <= high)]
+
+        if len(trimmed) == 0:
+            trimmed = heights
+
+        return float(np.mean(trimmed)) / 10.0  # mm -> cm
+
+    def calculate_volume_footprint(self, mask, reference_depth, diff):
+    
+        area_cm2 = self.calculate_cross_section_area(mask, reference_depth)
+        height_cm = self.calculate_trimmed_mean_height(diff, mask)
+
+        return area_cm2 * height_cm, area_cm2, height_cm

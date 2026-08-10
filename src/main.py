@@ -197,15 +197,35 @@ def calculate_difference(processor, measurement, volume):
     print("Press ESC to return.")
     print("--------------------------------")
 
-    volume_cm3 = volume.calculate_volume_from_diff(diff, processor.reference, mask)
     width, length, height = volume.calculate_bounding_box(object_cloud, diff, mask)
 
-    print(f"Volume: {volume_cm3:.2f} cm³")
-    print(f"Dimensions: {width:.1f} x {length:.1f} x {height:.1f} cm")
+    # ابعاد مستقل از چرخش جسم (minAreaRect) — نیازی به موازی بودن جعبه ندارد
+    dim_a, dim_b, angle_deg = processor.oriented_dimensions(mask, processor.reference)
+
+    # روش ۱: انتگرال‌گیری پیکسلی (Σ height_i × area_i) — روش مرجع/عمومی
+    volume_cm3_pixel = volume.calculate_volume_from_diff(diff, processor.reference, mask)
+
+    # روش ۲: منشور با فرض مستطیل کامل (minAreaRect × ارتفاع پرسنتایل ۹۵)
+    volume_cm3_prism = volume.calculate_volume_prism(dim_a, dim_b, height)
+
+    # روش ۳ (پیشنهادی نهایی): مساحت واقعی سطح segment‌شده × میانگین برش‌خورده
+    volume_cm3_footprint, area_cm2, height_trimmed_cm = volume.calculate_volume_footprint(
+        mask, processor.reference, diff
+    )
+
+    print(f"Volume (1: pixel integration, reference)      : {volume_cm3_pixel:.2f} cm³")
+    print(f"Volume (2: prism, minAreaRect x p95 height)    : {volume_cm3_prism:.2f} cm³")
+    print(f"Volume (3: real footprint area x trimmed mean, FINAL) : {volume_cm3_footprint:.2f} cm³ "
+          f"(area={area_cm2:.1f} cm², height={height_trimmed_cm:.1f} cm)")
+    print(f"Dimensions (axis-aligned, old): {width:.1f} x {length:.1f} x {height:.1f} cm")
+    print(f"Dimensions (oriented, rotation-independent): "
+          f"{dim_a:.1f} x {dim_b:.1f} x {height:.1f} cm  (angle: {angle_deg:.1f} deg)")
+
+    oriented_view = processor.draw_oriented_box(result, mask)
 
     while True:
 
-        cv2.imshow("Difference", result)
+        cv2.imshow("Difference", oriented_view)
         cv2.imshow("Mask", mask)
 
         key = cv2.waitKey(1) & 0xFF
