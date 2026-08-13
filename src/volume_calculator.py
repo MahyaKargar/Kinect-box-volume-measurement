@@ -83,3 +83,23 @@ class VolumeCalculator:
         height_cm = self.calculate_trimmed_mean_height(diff, mask)
 
         return area_cm2 * height_cm, area_cm2, height_cm
+
+    def calculate_centroid_height(self, mask, diff, patch_radius=5):
+        ys, xs = np.where(mask > 0)
+        if len(ys) == 0:
+            return 0.0
+
+        cy, cx = int(np.mean(ys)), int(np.mean(xs))
+
+        y0, y1 = max(0, cy - patch_radius), cy + patch_radius + 1
+        x0, x1 = max(0, cx - patch_radius), cx + patch_radius + 1
+
+        patch_diff = diff[y0:y1, x0:x1]
+        patch_mask = mask[y0:y1, x0:x1]
+
+        valid = patch_diff[(patch_mask > 0) & (patch_diff > 0)]
+
+        if len(valid) == 0:
+            return 0.0
+
+        return float(np.median(valid)) / 10.0  # mm -> cm

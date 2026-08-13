@@ -2,12 +2,17 @@ import cv2
 import traceback
 import numpy as np
 import time
+import os
+import csv
+from datetime import datetime
+
 
 from camera import KinectCamera
-from processing import DepthProcessor
-from measurement import PointCloudBuilder
+from depth_processor import DepthProcessor
+from point_cloud_builder import PointCloudBuilder
 from volume_calculator import VolumeCalculator
 
+LIGHT_TEST_CSV = "light_test_results.csv"
 
 def wait_for_frame(camera, num_frames=15):
 
@@ -114,8 +119,35 @@ def load_reference(processor):
 
         print(ex)
 
+def log_light_result(brightness, invalid_pct, noise_min_height_mm,
+                      mask_pixels, width_cm, length_cm, height_cm, volume_cm3):
 
-def calculate_difference(processor, measurement, volume):
+    row = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "brightness_0_255": round(brightness, 1) if brightness is not None else "",
+        "invalid_pct_current": round(invalid_pct, 2),
+        "noise_min_height_mm": round(noise_min_height_mm, 2),
+        "mask_pixels": mask_pixels,
+        "width_cm": round(width_cm, 2),
+        "length_cm": round(length_cm, 2),
+        "height_cm": round(height_cm, 2),
+        "volume_cm3": round(volume_cm3, 2),
+    }
+
+    file_exists = os.path.exists(LIGHT_TEST_CSV)
+
+    with open(LIGHT_TEST_CSV, "a", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row)
+
+    brightness_str = f"{brightness:.1f}" if brightness is not None else "N/A"
+    print(f"[Light Log] brightness={brightness_str}  invalid%={invalid_pct:.1f}  "
+          f"-> appended to {LIGHT_TEST_CSV}")
+
+
+def calculate_difference(processor, measurement, volume, camera):
 
     if processor.reference is None:
 
@@ -136,7 +168,6 @@ def calculate_difference(processor, measurement, volume):
 
     cv2.imshow("Raw Difference", diff_show)
     cv2.waitKey(0)
-    # ایcv2.destroyWindow("Raw Difference")
 
     valid = diff[diff > 0]
 
@@ -162,6 +193,13 @@ def calculate_difference(processor, measurement, volume):
     print("Current max   :", np.max(processor.current))
 
     print("Mask Pixels:", np.count_nonzero(mask))
+
+    MIN_VALID_MASK_PIXELS = 500
+    mask_count = np.count_nonzero(mask)
+    if mask_count < MIN_VALID_MASK_PIXELS:
+        print(f"Warning: only {mask_count} valid pixels detected.")
+        print("   The object was likely not properly separated from the background (edge noise or camera too far).")
+        print("   Move the object closer and adjust the camera angle so the full top surface is visible.")
 
     reference_cloud, current_cloud, object_cloud = measurement.process(
     processor.reference,
@@ -199,19 +237,18 @@ def calculate_difference(processor, measurement, volume):
 
     width, length, height = volume.calculate_bounding_box(object_cloud, diff, mask)
 
-    # ابعاد مستقل از چرخش جسم (minAreaRect) — نیازی به موازی بودن جعبه ندارد
     dim_a, dim_b, angle_deg = processor.oriented_dimensions(mask, processor.reference)
 
-    # روش ۱: انتگرال‌گیری پیکسلی (Σ height_i × area_i) — روش مرجع/عمومی
     volume_cm3_pixel = volume.calculate_volume_from_diff(diff, processor.reference, mask)
 
-    # روش ۲: منشور با فرض مستطیل کامل (minAreaRect × ارتفاع پرسنتایل ۹۵)
     volume_cm3_prism = volume.calculate_volume_prism(dim_a, dim_b, height)
 
-    # روش ۳ (پیشنهادی نهایی): مساحت واقعی سطح segment‌شده × میانگین برش‌خورده
     volume_cm3_footprint, area_cm2, height_trimmed_cm = volume.calculate_volume_footprint(
         mask, processor.reference, diff
     )
+
+    height_centroid_cm = volume.calculate_centroid_height(mask, diff)
+    volume_cm3_centroid = area_cm2 * height_centroid_cm
 
     print(f"Volume (1: pixel integration, reference)      : {volume_cm3_pixel:.2f} cm³")
     print(f"Volume (2: prism, minAreaRect x p95 height)    : {volume_cm3_prism:.2f} cm³")
@@ -220,6 +257,24 @@ def calculate_difference(processor, measurement, volume):
     print(f"Dimensions (axis-aligned, old): {width:.1f} x {length:.1f} x {height:.1f} cm")
     print(f"Dimensions (oriented, rotation-independent): "
           f"{dim_a:.1f} x {dim_b:.1f} x {height:.1f} cm  (angle: {angle_deg:.1f} deg)")
+
+    print(f"Volume (4: real footprint area x centroid height) : {volume_cm3_centroid:.2f} cm³ "
+          f"(area={area_cm2:.1f} cm², height={height_centroid_cm:.1f} cm)")
+
+    brightness = camera.get_average_brightness()
+
+    invalid_pct_current = 100.0 * np.count_nonzero(processor.current == 0) / processor.current.size
+
+    log_light_result(
+        brightness=brightness,
+        invalid_pct=invalid_pct_current,
+        noise_min_height_mm=processor.min_height,
+        mask_pixels=int(np.count_nonzero(mask)),
+        width_cm=dim_a,
+        length_cm=dim_b,
+        height_cm=height_trimmed_cm,
+        volume_cm3=volume_cm3_footprint,
+    )
 
     oriented_view = processor.draw_oriented_box(result, mask)
 
@@ -367,7 +422,7 @@ def main():
 
             elif choice == "6":
 
-                calculate_difference(processor, measurement, volume)
+                calculate_difference(processor, measurement, volume, camera)
 
             elif choice == "7":
 
