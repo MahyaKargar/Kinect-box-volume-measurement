@@ -28,8 +28,6 @@ class VolumeCalculator:
         x_min, y_min = np.percentile(object_cloud[:, :2], 2, axis=0)
         x_max, y_max = np.percentile(object_cloud[:, :2], 98, axis=0)
 
-        z_max = np.percentile(object_cloud[:, 2], 95)
-
         width_cm = (x_max - x_min) / 10.0
         length_cm = (y_max - y_min) / 10.0 
         if diff is not None and mask is not None:

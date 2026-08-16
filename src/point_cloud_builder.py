@@ -54,11 +54,7 @@ class PointCloudBuilder:
 
         points = self._create_points(depth)
         valid = (depth > 0) & (mask > 0)
-
-        print("Mask Pixels      :", np.count_nonzero(mask))
-        print("Mask > 0 Pixels  :", np.count_nonzero(mask > 0))
-        print("Selected Points  :", np.count_nonzero(valid))
-
+        
         return points[valid]
         
 
