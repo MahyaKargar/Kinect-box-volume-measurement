@@ -4,7 +4,7 @@ import numpy as np
 
 class ObjectAnalyzer:
    
-    def __init__(self, fx=285.63, fy=285.63, mad_factor=4.0, debug=False):
+    def __init__(self, fx=285.63, fy=285.63, mad_factor=2.0, debug=False):
         self.fx = fx
         self.fy = fy
         self.mad_factor = mad_factor
@@ -12,21 +12,22 @@ class ObjectAnalyzer:
         self.erode_kernel = np.ones((3, 3), np.uint8)
 
     def filter_top_surface(self, diff, mask):
-       
         object_diff = diff[mask > 0]
 
         if len(object_diff) == 0:
             return mask
 
-        median = np.median(object_diff)
-        mad = np.median(np.abs(object_diff - median)) + 1e-6
+        hist, bin_edges = np.histogram(object_diff, bins=30)
+        peak_idx = np.argmax(hist)
+        center = (bin_edges[peak_idx] + bin_edges[peak_idx + 1]) / 2.0
+
+        mad = np.median(np.abs(object_diff - center)) + 1e-6
 
         refined = np.zeros_like(mask)
         keep = (mask > 0) & (
-            np.abs(diff.astype(np.float32) - median) <= self.mad_factor * 1.4826 * mad
+            np.abs(diff.astype(np.float32) - center) <= self.mad_factor * 1.4826 * mad
         )
         refined[keep] = 255
-
         return refined
 
     def find_contours(self, mask):
@@ -64,8 +65,6 @@ class ObjectAnalyzer:
         width_cm = width_mm / 10.0
         length_cm = length_mm / 10.0
 
-        # Larger dimension always reported first, independent of box rotation,
-        # so results stay comparable across different object orientations.
         dim_a, dim_b = sorted([width_cm, length_cm], reverse=True)
 
         if self.debug:

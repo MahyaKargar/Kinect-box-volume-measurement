@@ -31,7 +31,6 @@ class DepthProcessor:
         self.open_kernel = np.ones((5, 5), np.uint8)
         self.close_kernel = np.ones((5, 5), np.uint8)
 
-    # ---------- Reference / Current frame management ----------
 
     def set_reference(self, depth):
         self.reference = depth.copy()
@@ -57,11 +56,8 @@ class DepthProcessor:
         self.reference = np.load(filename)
         self._calibrate_noise_threshold()
 
-    # ---------- Noise calibration ----------
 
     def _calibrate_noise_threshold(self):
-        """Estimate scene noise from the reference frame and set min_height."""
-
         valid_pixels = self.reference[self.reference > 0]
 
         if len(valid_pixels) == 0:
@@ -76,7 +72,6 @@ class DepthProcessor:
         if np.count_nonzero(flat_region) > 0:
             valid_noise = noise_map[flat_region]
         else:
-            # Whole scene detected as edge (unlikely); fall back to unfiltered estimate.
             valid_noise = noise_map[self.reference > 0]
 
         std_noise = np.std(valid_noise)
@@ -107,7 +102,6 @@ class DepthProcessor:
 
         return gradient_mag > self.edge_gradient_threshold
 
-    # ---------- Core pipeline ----------
 
     def create_valid_mask(self, reference, current):
         return (reference > 0) & (current > 0)
@@ -134,7 +128,6 @@ class DepthProcessor:
 
         valid = self.create_valid_mask(reference, current)
 
-        # Remove flying-pixel noise (Kinect v1 edge artifacts) from both frames
         ref_edges = self._detect_scene_edges(reference)
         cur_edges = self._detect_scene_edges(current)
 
@@ -151,11 +144,9 @@ class DepthProcessor:
         diff = np.clip(diff, 0, None)
         diff[~valid] = 0
 
-        # Remove physically implausible outliers (larger than expected max object height)
         diff[diff > self.max_plausible_height_mm] = 0
 
         self.difference = diff.astype(np.uint16)
-
         return self.difference
 
     def threshold(self, diff):
@@ -210,12 +201,7 @@ class DepthProcessor:
         return output
 
     def process_raw_mask(self):
-        """
-        Runs the depth-signal pipeline up to a clean, single-blob raw mask.
-        Geometric refinement (top-surface filtering) is done separately
-        by ObjectAnalyzer.filter_top_surface().
-        """
-
+        
         if self.reference is None:
             raise RuntimeError("Reference frame is not available.")
         if self.current is None:
@@ -244,7 +230,6 @@ class DepthProcessor:
 
         return diff, mask
 
-    # ---------- Visualization ----------
 
     def visualize_depth(self, depth):
         normalized = cv2.normalize(depth, None, 0, 255, cv2.NORM_MINMAX)
@@ -255,3 +240,24 @@ class DepthProcessor:
         normalized = cv2.normalize(diff, None, 0, 255, cv2.NORM_MINMAX)
         normalized = normalized.astype(np.uint8)
         return cv2.applyColorMap(normalized, cv2.COLORMAP_HOT)
+
+    def diagnose_diff_quality(self, diff, mask, expected_height_mm=None):
+     
+        valid = diff[mask > 0]
+        valid = valid[valid > 0]
+        if len(valid) == 0:
+            print("[Diff Quality] No valid pixels to evaluate.")
+            return
+
+        p25, p50, p75 = np.percentile(valid, [25, 50, 75])
+        iqr = p75 - p25
+
+        print(f"[Diff Quality] median={p50:.0f}mm, IQR={iqr:.0f}mm")
+
+        if iqr > 0.5 * p50:
+            print("Warning: diff distribution is spread out — "
+                  "possible contamination from noise/background.")
+
+        if expected_height_mm and abs(p50 - expected_height_mm) > 0.3 * expected_height_mm:
+            print(f"Warning: median diff ({p50:.0f}mm) is far from the "
+                  f"expected height ({expected_height_mm:.0f}mm).") 

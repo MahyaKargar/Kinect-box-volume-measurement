@@ -124,41 +124,43 @@ class AppController:
         diff, mask = self.processor.process_raw_mask()
         mask = self.analyzer.filter_top_surface(diff, mask)
 
+        # self.processor.diagnose_diff_quality(diff, mask, expected_height_mm=120)
+
         diff_show = cv2.convertScaleAbs(
             diff, alpha=255.0 / max(diff.max(), 1)
         )
         cv2.imshow("Raw Difference", diff_show)
         cv2.waitKey(0)
 
-        self._print_diff_stats(diff)
-        self._print_frame_stats()
+        # self._print_diff_stats(diff)
+        # self._print_frame_stats()
 
         mask_count = np.count_nonzero(mask)
-        print("Mask Pixels:", mask_count)
-        if mask_count < 500:
-            print(
-                f"Warning: only {mask_count} valid pixels detected. Adjust camera/object."
-            )
+        # print("Mask Pixels:", mask_count)
+        # if mask_count < 500:
+        #     print(
+        #         f"Warning: only {mask_count} valid pixels detected. Adjust camera/object."
+        #     )
 
         ref_cloud, cur_cloud, obj_cloud = self.point_cloud_builder.process(
             self.processor.reference, self.processor.current, mask
         )
 
-        print("--------------------------------")
-        print("Reference Cloud :", ref_cloud.shape)
-        print("Current Cloud   :", cur_cloud.shape)
-        print("Object Cloud    :", obj_cloud.shape)
-        print("--------------------------------")
+        # print("--------------------------------")
+        # print("Reference Cloud :", ref_cloud.shape)
+        # print("Current Cloud   :", cur_cloud.shape)
+        # print("Object Cloud    :", obj_cloud.shape)
+        # print("--------------------------------")
 
         self.point_cloud_builder.visualize_point_cloud(
             obj_cloud, "Object Point Cloud"
         )
 
         contours = self.analyzer.find_contours(mask)
-        print("--------------------------------")
-        print(f"Contours detected : {len(contours)}")
-        print("Press ESC to return.")
-        print("--------------------------------")
+        # print("--------------------------------")
+        # print(f"Contours detected : {len(contours)}")
+        # print("Press ESC to return.")
+        # print("--------------------------------")
 
         dim_a, dim_b, angle_deg = self.analyzer.oriented_dimensions(
             mask, self.processor.reference
@@ -183,18 +185,30 @@ class AppController:
         height_centroid = self.volume.calculate_centroid_height(mask, diff)
         vol_centroid = area_cm2 * height_centroid
 
-        # Print summaries
-        print(f"Volume (1: Pixel Integration) : {vol_pixel:.2f} cm³")
-        print(f"Volume (2: Prism)             : {vol_prism:.2f} cm³")
-        print(
-            f"Volume (3: Footprint - FINAL) : {vol_footprint:.2f} cm³ (Area={area_cm2:.1f} cm², H={height_trimmed:.1f} cm)"
-        )
-        print(f"Volume (4: Centroid)          : {vol_centroid:.2f} cm³")
-        print(
-            f"Dimensions (Oriented)        : {dim_a:.1f} x {dim_b:.1f} x {height:.1f} cm (Angle: {angle_deg:.1f}°)"
-        )
+        # print("\n" + "="*40)
+        # print("        MEASUREMENT RESULTS        ")
+        # print("="*40)
+        # print(f"Volume (1: Pixel Integration) : {vol_pixel:.2f} cm³")
+        # print(f"Volume (2: Prism)             : {vol_prism:.2f} cm³")
+        # print(f"Volume (3: Footprint - FINAL) : {vol_footprint:.2f} cm³")
+        # print(f"Volume (4: Centroid)          : {vol_centroid:.2f} cm³")
+        # print(
+        #     f"Dimensions (Oriented)        : {dim_a:.1f} x {dim_b:.1f} x {height:.1f} cm (Angle: {angle_deg:.1f}°)"
+        # )
 
-        # Log results
+        print("\n" + "=" * 45)
+        print("          MEASUREMENT RESULTS")
+        print("=" * 45)
+        print(f" Dimensions (L x W x H) : {dim_a:.1f} x {dim_b:.1f} x {height_trimmed:.1f} cm")
+        print(f" Surface Area          : {area_cm2:.1f} cm²")
+        print("-" * 45)
+        print(" Volume Estimation Methods:")
+        print(f"   1. Pixel Integration : {vol_pixel:.2f} cm³")
+        print(f"   2. Prism Model      : {vol_prism:.2f} cm³")
+        print(f"   3. Footprint (FINAL) : {vol_footprint:.2f} cm³  <-- (Selected)")
+        print(f"   4. Centroid Model   : {vol_centroid:.2f} cm³")
+        print("=" * 45 + "\n")
+
         brightness = self.camera.get_average_brightness()
         invalid_pct = (
             100.0
@@ -213,7 +227,6 @@ class AppController:
             volume_cm3=vol_footprint,
         )
 
-        # Show Output Windows
         result = self.processor.visualize_difference(diff)
         cv2.drawContours(result, contours, -1, (255, 255, 255), 2)
         oriented_view = self.analyzer.draw_oriented_box(result, mask)
