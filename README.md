@@ -75,4 +75,4 @@ The codebase is organized into focused, single-responsibility modules:
 
 ## Author
 
-Mahya Kargar — University capstone project
+Mahya Kargar — Undergraduate University Project
